@@ -6,13 +6,13 @@ use crate::config::IDENTITY_NAME;
 use crate::config_types::BluetoothAddressList;
 use crate::web::AppState;
 use anyhow::anyhow;
-use backon::{ExponentialBuilder, Retryable};
 use bluer::{
     rfcomm::{Profile, ProfileHandle, Role, Stream},
     Adapter, Address, Uuid,
 };
 use futures::StreamExt;
 use simplelog::*;
+use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -31,9 +31,24 @@ use WifiInfoResponse::SecurityMode;
 const HEADER_LEN: usize = 4;
 const STAGES: u8 = 5;
 const ATTEMPTS: usize = 3;
+const PAGE_TIMEOUT_COOLDOWN: Duration = Duration::from_secs(60);
+const STOP_RECONNECT_DELAY: Duration = Duration::from_secs(10);
+const LAST_BT_DEVICE_PATH: &str = "/etc/aa-proxy-rs/last_bt_device";
 
 // module name for logging engine
 const NAME: &str = "<i><bright-black> bluetooth: </>";
+
+fn load_last_connected() -> Option<Address> {
+    std::fs::read_to_string(LAST_BT_DEVICE_PATH)
+        .ok()
+        .and_then(|s| s.trim().parse::<Address>().ok())
+}
+
+fn save_last_connected(addr: Address) {
+    if let Err(e) = std::fs::write(LAST_BT_DEVICE_PATH, addr.to_string()) {
+        warn!("{} Failed to persist last_connected to {}: {}", NAME, LAST_BT_DEVICE_PATH, e);
+    }
+}
 
 // Just a generic Result type to ease error handling for us. Errors in multithreaded
 // async contexts needs some extra restrictions
@@ -64,6 +79,9 @@ pub struct Bluetooth {
     adv_handle: Option<bluer::adv::AdvertisementHandle>,
     current_index: usize,
     dongle_mode: bool,
+    page_timeout_devices: HashMap<Address, Instant>,
+    last_connected: Option<Address>,
+    stopped_at: Option<Instant>,
 }
 
 // Create and configure the Bluetooth adapter
@@ -120,6 +138,9 @@ pub async fn init(
         adv_handle: None,
         current_index: 0,
         dongle_mode,
+        page_timeout_devices: HashMap::new(),
+        last_connected: load_last_connected(),
+        stopped_at: None,
     })
 }
 
@@ -346,38 +367,38 @@ impl Bluetooth {
                 if !addresses.is_empty() {
                     info!("{} 🧲 Attempting to start an AndroidAuto session via bluetooth with the following devices, in this order: {:?}", NAME, addresses);
                     if !self.dongle_mode {
-                        let try_connect_bluetooth_addresses_retry = || async {
-                            let next_index = Bluetooth::try_connect_bluetooth_addresses(
+                        let start_index = self
+                            .last_connected
+                            .and_then(|last| addresses.iter().position(|a| *a == last))
+                            .unwrap_or(self.current_index);
+
+                        let mut retry_delay = Duration::from_secs(1);
+                        loop {
+                            match Bluetooth::try_connect_bluetooth_addresses(
                                 &adapter_cloned,
                                 &addresses,
-                                self.current_index,
+                                start_index,
+                                &mut self.page_timeout_devices,
                             )
-                            .await?;
-
-                            Ok(next_index)
-                        };
-
-                        let retry_policy = ExponentialBuilder::default()
-                            .with_min_delay(Duration::from_secs(1))
-                            .with_max_delay(Duration::from_secs(15))
-                            .without_max_times();
-
-                        self.current_index = try_connect_bluetooth_addresses_retry
-                            // Retry with exponential backoff
-                            .retry(retry_policy)
-                            // Sleep implementation, required if no feature has been enabled
-                            .sleep(tokio::time::sleep)
-                            // Notify when retrying;
-                            .notify(
-                                |err: &Box<dyn std::error::Error + Send + Sync + 'static>,
-                                 dur: Duration| {
+                            .await
+                            {
+                                Ok((next_index, connected_addr)) => {
+                                    self.current_index = next_index;
+                                    self.last_connected = Some(connected_addr);
+                                    save_last_connected(connected_addr);
+                                    break;
+                                }
+                                Err(e) => {
                                     debug!(
                                         "{} Retrying due to error: {:?} after {:?}",
-                                        NAME, err, dur
+                                        NAME, e, retry_delay
                                     );
-                                },
-                            )
-                            .await?;
+                                    tokio::time::sleep(retry_delay).await;
+                                    retry_delay =
+                                        (retry_delay * 2).min(Duration::from_secs(15));
+                                }
+                            }
+                        }
                     } else {
                         for addr in addresses {
                             if let Ok(device) = adapter_cloned.device(addr) {
@@ -418,32 +439,78 @@ impl Bluetooth {
             }
         }
 
-        let req = timeout(bt_timeout, self.handle_aa.next())
-            .await?
-            .expect("received no connect request");
-        info!(
-            "{} 📱 AA Wireless Profile: connect from: <b>{}</>",
-            NAME,
-            req.device()
-        );
-        let addr = req.device().clone();
-        let stream = req.accept()?;
+        // When stopped, record when we first entered passive wait so we can
+        // drain Android's auto-reconnects that arrive within STOP_RECONNECT_DELAY.
+        if stopped && self.stopped_at.is_none() {
+            self.stopped_at = Some(Instant::now());
+        }
 
-        Ok((addr, stream))
+        let deadline = tokio::time::Instant::now() + bt_timeout;
+        loop {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            let req = timeout(remaining, self.handle_aa.next())
+                .await?
+                .expect("received no connect request");
+
+            // After user-Stop, Android AA auto-reconnects within ~500ms.
+            // Drain those connections silently until STOP_RECONNECT_DELAY expires,
+            // then accept the first connection that arrives (deliberate user reconnect).
+            if stopped {
+                if let Some(stopped_at) = self.stopped_at {
+                    if stopped_at.elapsed() < STOP_RECONNECT_DELAY {
+                        let device = req.device();
+                        let _ = req.accept();
+                        debug!(
+                            "{} ⏩ Stop debounce: discarding auto-reconnect from {} ({}s < {}s)",
+                            NAME,
+                            device,
+                            stopped_at.elapsed().as_secs(),
+                            STOP_RECONNECT_DELAY.as_secs()
+                        );
+                        continue;
+                    }
+                }
+            }
+
+            info!(
+                "{} 📱 AA Wireless Profile: connect from: <b>{}</>",
+                NAME,
+                req.device()
+            );
+            let addr = req.device().clone();
+            let stream = req.accept()?;
+            self.last_connected = Some(addr);
+            save_last_connected(addr);
+            return Ok((addr, stream));
+        }
     }
 
     async fn try_connect_bluetooth_addresses(
         adapter: &Adapter,
         addresses: &Vec<Address>,
         start_index: usize,
-    ) -> Result<usize> {
+        page_timeout_devices: &mut HashMap<Address, Instant>,
+    ) -> Result<(usize, Address)> {
         let n = addresses.len();
         for i in 0..n {
-            // Calculate the actual index, taking start_index into account
             let idx = (start_index + i) % n;
             let addr = addresses[idx];
-            let device = adapter.device(addr)?;
 
+            if let Some(&failed_at) = page_timeout_devices.get(&addr) {
+                if failed_at.elapsed() < PAGE_TIMEOUT_COOLDOWN {
+                    debug!(
+                        "{} ⏩ {}: skipping — page-timeout cooldown ({:.0?} remaining)",
+                        NAME,
+                        addr,
+                        PAGE_TIMEOUT_COOLDOWN - failed_at.elapsed()
+                    );
+                    continue;
+                } else {
+                    page_timeout_devices.remove(&addr);
+                }
+            }
+
+            let device = adapter.device(addr)?;
             let dev_name = match device.name().await {
                 Ok(Some(name)) => format!(" (<b><blue>{}</>)", name),
                 _ => String::new(),
@@ -460,10 +527,20 @@ impl Bluetooth {
                                 "{} 🔗 Successfully connected to device: {}{}",
                                 NAME, addr, dev_name
                             );
-                            return Ok((idx + 1) % n);
+                            page_timeout_devices.remove(&addr);
+                            return Ok(((idx + 1) % n, addr));
                         }
                         Err(e) => {
-                            warn!("{} 🔇 {}{}: Error connecting: {}", NAME, addr, dev_name, e)
+                            let msg = e.to_string();
+                            if msg.contains("br-connection-page-timeout") {
+                                warn!(
+                                    "{} 🔇 {}{}: page timeout — suppressing for {:?}",
+                                    NAME, addr, dev_name, PAGE_TIMEOUT_COOLDOWN
+                                );
+                                page_timeout_devices.insert(addr, Instant::now());
+                                break;
+                            }
+                            warn!("{} 🔇 {}{}: Error connecting: {}", NAME, addr, dev_name, e);
                         }
                     }
                 } else {
@@ -604,6 +681,7 @@ impl Bluetooth {
         if stopped {
             info!("{} 🔄 User-stop cleared, phone reconnected successfully", NAME);
             shared_config.write().await.action_requested = None;
+            self.stopped_at = None;
         }
         tcp_start.notify_one();
 
