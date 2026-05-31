@@ -340,9 +340,10 @@ async fn tokio_main(
         }
 
         // run only if not handling this in handshake task
+        let stopped = cfg.action_requested == Some(Action::Stop);
         if cfg.wired.is_none()
             && (!(cfg.quick_reconnect && profile_connected.load(Ordering::Relaxed))
-                || cfg.action_requested == Some(Action::Stop))
+                || stopped)
         {
             // bluetooth handshake
             if let Err(e) = bluetooth
@@ -351,17 +352,18 @@ async fn tokio_main(
                     wifi_conf.clone().unwrap(),
                     tcp_start.clone(),
                     Duration::from_secs(cfg.bt_timeout_secs.into()),
-                    cfg.action_requested == Some(Action::Stop),
+                    stopped,
                     cfg.quick_reconnect,
                     cfg.bt_poweroff,
                     restart_tx.subscribe(),
                     restart_tx.clone(),
                     profile_connected.clone(),
+                    config.clone(),
                 )
                 .await
             {
                 error!("{} bluetooth AA handshake error: {}", NAME, e);
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                 continue;
             }
         }
@@ -381,7 +383,7 @@ async fn tokio_main(
                 "{} 📵 TCP/USB connection closed or not started, trying again...",
                 NAME
             );
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         } else {
             info!(
                 "{} 📵 TCP/USB connection closed or not started, quick restart...",
