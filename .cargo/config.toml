@@ -18,6 +18,15 @@ ar = "arm-linux-gnueabihf-ar"
 linker = "riscv64-linux-gnu-gcc"
 ar = "riscv64-linux-gnu-ar"
 
+[target.riscv64gc-unknown-linux-musl]
+linker = "/x-tools/riscv64-unknown-linux-musl/bin/riscv64-unknown-linux-musl-gcc"
+ar = "/x-tools/riscv64-unknown-linux-musl/bin/riscv64-unknown-linux-musl-ar"
+
 [target.x86_64-unknown-linux-gnu]
 linker = "gcc"
 ar = "ar"
+
+[env]
+PKG_CONFIG_ALLOW_CROSS_riscv64gc_unknown_linux_musl = "1"
+PKG_CONFIG_SYSROOT_DIR_riscv64gc_unknown_linux_musl = "/x-tools/riscv64-unknown-linux-musl/riscv64-unknown-linux-musl/sysroot"
+PKG_CONFIG_PATH_riscv64gc_unknown_linux_musl = "/x-tools/riscv64-unknown-linux-musl/riscv64-unknown-linux-musl/sysroot/usr/lib/pkgconfig"

@@ -1,0 +1,13 @@
+[target.riscv64gc-unknown-linux-gnu]
+pre-build = [
+    "dpkg --add-architecture riscv64",
+    "apt-get update",
+    "apt-get install -y libdbus-1-dev:riscv64 pkg-config"
+]
+
+[target.riscv64gc-unknown-linux-musl]
+pre-build = [
+    "apt-get update && apt-get install -y wget xz-utils pkg-config",
+    "cd /tmp && wget -q https://github.com/libexpat/libexpat/releases/download/R_2_6_4/expat-2.6.4.tar.bz2 && tar xf expat-2.6.4.tar.bz2 && cd expat-2.6.4 && ./configure --host=riscv64-unknown-linux-musl CC=/x-tools/riscv64-unknown-linux-musl/bin/riscv64-unknown-linux-musl-gcc CFLAGS=-fPIC --prefix=/x-tools/riscv64-unknown-linux-musl/riscv64-unknown-linux-musl/sysroot/usr --enable-static --disable-shared --without-docbook && make -j$(nproc) && make install",
+    "cd /tmp && wget -q https://dbus.freedesktop.org/releases/dbus/dbus-1.14.10.tar.xz && tar xf dbus-1.14.10.tar.xz && cd dbus-1.14.10 && ./configure --host=riscv64-unknown-linux-musl CC=/x-tools/riscv64-unknown-linux-musl/bin/riscv64-unknown-linux-musl-gcc CFLAGS=-fPIC --prefix=/x-tools/riscv64-unknown-linux-musl/riscv64-unknown-linux-musl/sysroot/usr --enable-static --disable-shared --disable-systemd --disable-selinux --disable-tests --disable-xml-docs --disable-doxygen-docs --without-x --with-system-socket=/run/dbus/system_bus_socket PKG_CONFIG_PATH=/x-tools/riscv64-unknown-linux-musl/riscv64-unknown-linux-musl/sysroot/usr/lib/pkgconfig ac_cv_func_pipe2=yes && make -j$(nproc) && make install"
+]

@@ -13,11 +13,11 @@ repository = 'https://github.com/manio/aa-proxy-rs'
 default-run = "aa-proxy-rs"
 
 [features]
-default = ["wasm-scripting"]
+default = []
 wasm-scripting = ["wasmtime", "wasmtime/component-model", "wasmtime-wasi", "notify"]
 
 [dependencies]
-dbus = { version = "0.9.7", features = ["vendored"] }
+dbus = { version = "0.9.7" }
 bluer = { version = "0.17.4", features = ["full"] }
 futures = "0.3.31"
 kobject-uevent = "0.1.1"
