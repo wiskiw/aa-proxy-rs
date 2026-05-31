@@ -209,4 +209,30 @@ impl UsbGadgetState {
 
         Ok(())
     }
+
+    pub fn apply_strings(
+        &self,
+        product: Option<&str>,
+        manufacturer: Option<&str>,
+        serial: Option<&str>,
+    ) {
+        for gadget in &["default", "accessory"] {
+            let base = self.configfs_path.join(gadget).join("strings/0x409");
+            if base.exists() {
+                if let Some(v) = product {
+                    let _ = write_data(&base.join("product"), v.as_bytes());
+                }
+                if let Some(v) = manufacturer {
+                    let _ = write_data(&base.join("manufacturer"), v.as_bytes());
+                }
+                if let Some(v) = serial {
+                    let _ = write_data(&base.join("serialnumber"), v.as_bytes());
+                }
+            }
+        }
+        info!(
+            "USB gadget strings applied: product={:?} manufacturer={:?} serial={:?}",
+            product, manufacturer, serial
+        );
+    }
 }

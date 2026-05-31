@@ -59,6 +59,7 @@ pub struct ConfigValue {
     pub typ: String,
     pub description: String,
     pub values: Option<Vec<String>>,
+    pub placeholder: Option<String>,
 }
 
 #[serde_as]
@@ -95,6 +96,12 @@ pub struct AppConfig {
     pub iface: String,
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub btalias: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub usb_product: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub usb_manufacturer: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub usb_serial: Option<String>,
     pub timeout_secs: u16,
     #[serde(
         default = "webserver_default_bind",
@@ -175,6 +182,7 @@ impl Default for ConfigValue {
             typ: String::new(),
             description: String::new(),
             values: None,
+            placeholder: None,
         }
     }
 }
@@ -266,6 +274,9 @@ impl Default for AppConfig {
             udc: None,
             iface: "wlan0".to_string(),
             btalias: None,
+            usb_product: None,
+            usb_manufacturer: None,
+            usb_serial: None,
             timeout_secs: 10,
             webserver: webserver_default_bind(),
             bt_timeout_secs: 120,
@@ -372,6 +383,9 @@ impl AppConfig {
         if let Some(alias) = &self.btalias {
             doc["btalias"] = value(alias);
         }
+        doc["usb_product"] = value(self.usb_product.as_deref().unwrap_or(""));
+        doc["usb_manufacturer"] = value(self.usb_manufacturer.as_deref().unwrap_or(""));
+        doc["usb_serial"] = value(self.usb_serial.as_deref().unwrap_or(""));
         doc["timeout_secs"] = value(self.timeout_secs as i64);
         if let Some(webserver) = &self.webserver {
             doc["webserver"] = value(webserver);

@@ -230,13 +230,17 @@ pub fn render_config_values(config: &ConfigJson) -> String {
 
         let len = section.values.len();
         for (i, (key, val)) in section.values.iter().enumerate() {
+            let ph = val
+                .placeholder
+                .as_deref()
+                .map(|p| format!(r#" placeholder="{p}""#))
+                .unwrap_or_default();
             let input_html = match val.typ.as_str() {
-                "string" => format!(r#"<input type="text" id="{key}" />"#),
-                "integer" => format!(r#"<input type="number" id="{key}" />"#),
-                "float" => format!(r#"<input type="number" step="any" id="{key}" />"#),
+                "string" => format!(r#"<input type="text" id="{key}"{ph} />"#),
+                "integer" => format!(r#"<input type="number" id="{key}"{ph} />"#),
+                "float" => format!(r#"<input type="number" step="any" id="{key}"{ph} />"#),
                 "boolean" => format!(r#"<input type="checkbox" role="switch" id="{key}" />"#),
                 "select" => {
-                    // Render a <select> with options if they exist
                     if let Some(options) = &val.values {
                         let options_html = options
                             .iter()
@@ -245,11 +249,10 @@ pub fn render_config_values(config: &ConfigJson) -> String {
                             .join("\n");
                         format!(r#"<select id="{key}">{options_html}</select>"#)
                     } else {
-                        // fallback to text input if no options provided
-                        format!(r#"<input type="text" id="{key}" />"#)
+                        format!(r#"<input type="text" id="{key}"{ph} />"#)
                     }
                 }
-                _ => format!(r#"<input type="text" id="{key}" />"#),
+                _ => format!(r#"<input type="text" id="{key}"{ph} />"#),
             };
 
             let desc = replace_backticks(val.description.replace("\n", "<br>"));

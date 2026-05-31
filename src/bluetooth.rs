@@ -34,6 +34,7 @@ const ATTEMPTS: usize = 3;
 const PAGE_TIMEOUT_COOLDOWN: Duration = Duration::from_secs(60);
 const STOP_RECONNECT_DELAY: Duration = Duration::from_secs(10);
 const LAST_BT_DEVICE_PATH: &str = "/etc/aa-proxy-rs/last_bt_device";
+const LAST_BT_DEVICE_NAME_PATH: &str = "/etc/aa-proxy-rs/last_bt_device_name";
 
 // module name for logging engine
 const NAME: &str = "<i><bright-black> bluetooth: </>";
@@ -47,6 +48,19 @@ fn load_last_connected() -> Option<Address> {
 fn save_last_connected(addr: Address) {
     if let Err(e) = std::fs::write(LAST_BT_DEVICE_PATH, addr.to_string()) {
         warn!("{} Failed to persist last_connected to {}: {}", NAME, LAST_BT_DEVICE_PATH, e);
+    }
+}
+
+pub fn load_last_connected_name() -> Option<String> {
+    std::fs::read_to_string(LAST_BT_DEVICE_NAME_PATH)
+        .ok()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty())
+}
+
+fn save_last_connected_name(name: &str) {
+    if let Err(e) = std::fs::write(LAST_BT_DEVICE_NAME_PATH, name) {
+        warn!("{} Failed to persist device name to {}: {}", NAME, LAST_BT_DEVICE_NAME_PATH, e);
     }
 }
 
@@ -405,6 +419,7 @@ impl Bluetooth {
                                 match device.name().await {
                                     Ok(Some(name)) => {
                                         if name.starts_with("AndroidAuto-") {
+                                            save_last_connected_name(&name);
                                             let dev_name = format!(" (<b><blue>{}</>)", name);
                                             info!(
                                                 "{} 🧲 (dongle_mode) Forcing BR/EDR device.connect() to {} {}",
@@ -512,7 +527,10 @@ impl Bluetooth {
 
             let device = adapter.device(addr)?;
             let dev_name = match device.name().await {
-                Ok(Some(name)) => format!(" (<b><blue>{}</>)", name),
+                Ok(Some(name)) => {
+                    save_last_connected_name(&name);
+                    format!(" (<b><blue>{}</>)", name)
+                }
                 _ => String::new(),
             };
             for j in 1..=ATTEMPTS {

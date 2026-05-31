@@ -279,7 +279,14 @@ async fn tokio_main(
             // start uevent listener in own task
             std::thread::spawn(|| uevent_listener(accessory_started_cloned));
         }
-        usb = Some(UsbGadgetState::new(cfg.legacy, cfg.udc.clone()));
+        let usb_state = UsbGadgetState::new(cfg.legacy, cfg.udc.clone());
+        let product = cfg.usb_product.as_deref();
+        let manufacturer = cfg.usb_manufacturer.as_deref();
+        let serial = cfg.usb_serial.as_deref();
+        if product.is_some() || manufacturer.is_some() || serial.is_some() {
+            usb_state.apply_strings(product, manufacturer, serial);
+        }
+        usb = Some(usb_state);
     }
 
     if button_support {
@@ -332,6 +339,11 @@ async fn tokio_main(
         if let Some(ref mut usb) = usb {
             if let Err(e) = usb.init() {
                 error!("{} 🔌 USB init error: {}", NAME, e);
+            }
+            if cfg.usb_product.is_none() {
+                let product = bluetooth::load_last_connected_name()
+                    .unwrap_or_else(|| "Pairing...".to_string());
+                usb.apply_strings(Some(&product), None, None);
             }
         }
 

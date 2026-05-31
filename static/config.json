@@ -72,6 +72,21 @@
           "typ": "string",
           "description": "UDC Controller name (used in special configurations)"
         },
+        "usb_product": {
+          "typ": "string",
+          "description": "USB gadget product string — device name shown in car's device list\nIf empty, the connected phone's Bluetooth name is used automatically (e.g. \"Pixel 4a\"). Falls back to \"Pairing...\" if no phone has connected yet.\nexample: \"Android Phone\"",
+          "placeholder": "auto (phone's Bluetooth name)"
+        },
+        "usb_manufacturer": {
+          "typ": "string",
+          "description": "USB gadget manufacturer string — shown alongside product name in car\nIf empty, the system default is used.",
+          "placeholder": "aa-proxy"
+        },
+        "usb_serial": {
+          "typ": "string",
+          "description": "USB gadget serial number — used by car to distinguish device identity\nchanging this makes the car create a new device entry in its list\nleave empty to keep system default",
+          "placeholder": "0123456"
+        },
         "startup_delay": {
           "typ": "integer",
           "description": "Enables delaying the launch of `aa-proxy-rs` by a specified number of seconds (range: 0–254).\nDefault value: 0.\nIntended for specific scenarios (e.g., non-standard head units)"
