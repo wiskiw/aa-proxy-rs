@@ -13,7 +13,7 @@ repository = 'https://github.com/manio/aa-proxy-rs'
 default-run = "aa-proxy-rs"
 
 [features]
-default = ["wasm-scripting", "io-uring"]
+default = ["io-uring"]
 io-uring = ["dep:tokio-uring"]
 wasm-scripting = ["wasmtime", "wasmtime/component-model", "wasmtime-wasi", "notify"]
 
