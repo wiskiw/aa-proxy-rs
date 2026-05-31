@@ -140,6 +140,7 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route("/download", get(download_handler))
         .route("/restart", post(restart_handler))
         .route("/reboot", post(reboot_handler))
+        .route("/stop", post(stop_handler))
         .route("/upload-hex-model", post(upload_hex_model_handler))
         .route("/upload-certs", post(upload_cert_bundle_handler))
         .route("/certs-info", get(certs_info_handler))
@@ -541,6 +542,15 @@ async fn reboot_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse
     Response::builder()
         .status(StatusCode::OK)
         .body(Body::from("Reboot has been requested"))
+        .unwrap()
+}
+
+async fn stop_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    state.config.write().await.action_requested = Some(Action::Stop);
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .body(Body::from("Stop has been requested"))
         .unwrap()
 }
 
